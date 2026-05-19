@@ -1,1 +1,7 @@
-{"code":"rate-limited","message":"You have hit the rate limit. Please upgrade to keep chatting.","providerLimitHit":false,"isRetryable":true}
+export default function GpaChart() {
+  return (
+    <div>
+      GPA Chart Component
+    </div>
+  );
+}
