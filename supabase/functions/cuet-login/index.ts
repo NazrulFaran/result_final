@@ -146,72 +146,87 @@ Deno.serve(async (req: Request) => {
     form.set("loginuser", "Sign In");
     if (csrf) form.set("csrf_token", csrf);
 
+    let currentCookie = cookie;
+
+    // Step 1: Submit Login Form
     const loginRes = await fetch(`${BASE}/index.php`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0",
-        Cookie: cookie,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Cookie: currentCookie,
         Referer: `${BASE}/index.php`,
       },
       body: form.toString(),
       redirect: "manual",
     });
 
-    const newCookie = parseSetCookie(loginRes.headers);
-    const mergedCookie = mergeCookies(cookie, newCookie);
+    const cookieAfterLogin = parseSetCookie(loginRes.headers);
+    currentCookie = mergeCookies(currentCookie, cookieAfterLogin);
 
-    let html = "";
+    let landingHtml = "";
+    
+    // Step 2: Handle Redirection Explicitly & Keep Session Cookies Secure
     if (loginRes.status >= 300 && loginRes.status < 400) {
-      const loc = loginRes.headers.get("location") || `${BASE}/result_published.php`;
+      const loc = loginRes.headers.get("location") || "result_published.php";
       const url = loc.startsWith("http") ? loc : `${BASE}/${loc.replace(/^\//, "")}`;
-      const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", Cookie: mergedCookie } });
-      html = await r.text();
+      
+      const redirectRes = await fetch(url, { 
+        headers: { 
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", 
+          Cookie: currentCookie 
+        } 
+      });
+      
+      const cookieAfterRedirect = parseSetCookie(redirectRes.headers);
+      currentCookie = mergeCookies(currentCookie, cookieAfterRedirect);
+      landingHtml = await redirectRes.text();
     } else {
-      html = await loginRes.text();
+      landingHtml = await loginRes.text();
     }
 
+    // Step 3: Fetch Target Results Page Explicitly
     const resultsRes = await fetch(`${BASE}/result_published.php`, {
-      headers: { "User-Agent": "Mozilla/5.0", Cookie: mergedCookie },
+      headers: { 
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", 
+        Cookie: currentCookie 
+      },
     });
     const resultsHtml = await resultsRes.text();
-    const parsed = parseResultsHtml(resultsHtml);
+    let parsed = parseResultsHtml(resultsHtml);
 
+    // Step 4: Fallback checks if parsing primary landing elements yields nothing
+    if (parsed.rows.length === 0) {
+      parsed = parseResultsHtml(landingHtml);
+    }
+
+    // Handle Authentication Failures Explicitly
+    if (parsed.rows.length === 0) {
+      const lower = (landingHtml + resultsHtml).toLowerCase();
+      let reason = "Login failed or no results found.";
+      if (lower.includes("captcha")) reason = "Incorrect captcha text. Please try again.";
+      else if (lower.includes("password") || lower.includes("invalid") || lower.includes("wrong"))
+        reason = "Invalid student ID or portal password.";
+      
+      return new Response(
+        JSON.stringify({ ok: false, error: reason }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Step 5: Gather optional profile payload data
     let profile: ReturnType<typeof parseAdminHtml> = {};
     try {
       const adminRes = await fetch(`${BASE}/admin.php`, {
-        headers: { "User-Agent": "Mozilla/5.0", Cookie: mergedCookie },
+        headers: { 
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", 
+          Cookie: currentCookie 
+        },
       });
       const adminHtml = await adminRes.text();
       profile = parseAdminHtml(adminHtml);
     } catch {
-      // optional
-    }
-
-    if (parsed.rows.length === 0) {
-      const fallback = parseResultsHtml(html);
-      if (fallback.rows.length === 0) {
-        const lower = (html + resultsHtml).toLowerCase();
-        let reason = "Login failed or no results found.";
-        if (lower.includes("captcha")) reason = "Incorrect captcha. Please try again.";
-        else if (lower.includes("password") || lower.includes("invalid"))
-          reason = "Invalid student ID or password.";
-        return new Response(
-          JSON.stringify({ ok: false, error: reason }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          ...fallback,
-          studentId: profile.studentId ?? fallback.studentId,
-          name: profile.name ?? fallback.name,
-          department: profile.department,
-          batch: profile.batch,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      // Optional profile fetch failure allowed safely
     }
 
     return new Response(
