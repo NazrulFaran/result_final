@@ -81,22 +81,29 @@ export default function LoginForm({ onSuccess }: Props) {
       try {
         data = JSON.parse(responseText);
       } catch {
+        console.error("Failed to parse response:", responseText);
         throw new Error("Invalid response from server");
       }
 
-      if (!res.ok || data.error) {
-        setError(data.error ?? "Login failed. Please try again with a new captcha.");
+      console.log("Login response:", { status: res.status, ok: data.ok, hasRows: !!data.rows, error: data.error });
+
+      if (data.error) {
+        setError(data.error);
         return;
       }
 
-      if (data.ok === true && data.rows) {
-        onSuccess(data);
-      } else if (data.rows) {
+      if (!res.ok) {
+        setError("Login failed. Please check your credentials and try again.");
+        return;
+      }
+
+      if (data.ok === true) {
         onSuccess(data);
       } else {
         throw new Error("Unexpected response structure");
       }
     } catch (e) {
+      console.error("Login error:", e);
       setError(e instanceof Error ? e.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
