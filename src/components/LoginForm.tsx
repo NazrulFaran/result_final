@@ -85,8 +85,7 @@ export default function LoginForm({ onSuccess }: Props) {
       }
 
       if (!res.ok || data.error) {
-        setError(data.error ?? "Login failed");
-        await loadCaptcha();
+        setError(data.error ?? "Login failed. Please try again with a new captcha.");
         return;
       }
 
@@ -98,8 +97,7 @@ export default function LoginForm({ onSuccess }: Props) {
         throw new Error("Unexpected response structure");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Network error");
-      await loadCaptcha();
+      setError(e instanceof Error ? e.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }
