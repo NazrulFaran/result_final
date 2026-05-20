@@ -37,6 +37,17 @@ function parseSetCookie(headers: Headers): string {
     .join("; ");
 }
 
+function mergeCookies(existing: string, incoming: string): string {
+  const jar = new Map<string, string>();
+  for (const part of `${existing}; ${incoming}`.split(";")) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    jar.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+  }
+  return Array.from(jar, ([k, v]) => `${k}=${v}`).join("; ");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -95,11 +106,13 @@ Deno.serve(async (req: Request) => {
 
     const mime = isPng ? "image/png" : isJpeg ? "image/jpeg" : "image/gif";
     const b64 = btoa(String.fromCharCode(...bytes));
+    
     const cookie2 = parseSetCookie(capRes.headers);
-    const sessionCookie = cookie2 || cookie1;
+    // Explicitly merge the initial landing page cookie with the captcha transaction cookie
+    const combinedSessionCookie = mergeCookies(cookie1, cookie2);
 
     return new Response(
-      JSON.stringify({ cookie: sessionCookie, csrf, image: `data:${mime};base64,${b64}` }),
+      JSON.stringify({ cookie: combinedSessionCookie, csrf, image: `data:${mime};base64,${b64}` }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
